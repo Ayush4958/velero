@@ -4529,8 +4529,6 @@ func TestIsAlreadyExistsError(t *testing.T) {
 	}
 }
 
-
-
 func TestDetermineRestoreStatus(t *testing.T) {
 	tests := []struct {
 		name                string
@@ -4628,5 +4626,3 @@ func TestDetermineRestoreStatus(t *testing.T) {
 		})
 	}
 }
-
-

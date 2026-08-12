@@ -2267,7 +2267,6 @@ func (hwe *hooksWaitExecutor) exec(execHooksByContainer map[string][]hook.PodExe
 	}()
 }
 
-
 func hasDeleteReclaimPolicy(obj map[string]any) bool {
 	policy, _, _ := unstructured.NestedString(obj, "spec", "persistentVolumeReclaimPolicy")
 	return policy == string(corev1api.PersistentVolumeReclaimDelete)
