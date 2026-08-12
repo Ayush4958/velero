@@ -72,7 +72,7 @@ import (
 	vsv1 "github.com/vmware-tanzu/velero/pkg/plugin/velero/volumesnapshotter/v1"
 	"github.com/vmware-tanzu/velero/pkg/podexec"
 	"github.com/vmware-tanzu/velero/pkg/podvolume"
-	"github.com/vmware-tanzu/velero/pkg/podvolume/configs"
+
 	"github.com/vmware-tanzu/velero/pkg/types"
 	"github.com/vmware-tanzu/velero/pkg/util/boolptr"
 	"github.com/vmware-tanzu/velero/pkg/util/collections"
@@ -1522,91 +1522,48 @@ func (ctx *restoreContext) restoreItem(obj *unstructured.Unstructured, groupReso
 			return warnings, errs, itemExists
 		}
 
-		if volumeInfo, ok := ctx.backupVolumeInfoMap[obj.GetName()]; ok {
+		volumeInfo, ok := ctx.backupVolumeInfoMap[obj.GetName()]
+		if ok {
 			restoreLogger.Infof("Find BackupVolumeInfo for PV %s.", obj.GetName())
-
-			switch volumeInfo.BackupMethod {
-			case volume.NativeSnapshot:
-				obj, err = ctx.handlePVHasNativeSnapshot(obj, resourceClient)
-				if err != nil {
-					errs.Add(namespace, err)
-					return warnings, errs, itemExists
-				}
-
-			case volume.PodVolumeBackup:
-				restoreLogger.Infof("Dynamically re-provisioning persistent volume because it has a pod volume backup to be restored.")
-				ctx.pvsToProvision.Insert(backupResourceName)
-
-				// Return early because we don't want to restore the PV itself, we
-				// want to dynamically re-provision it.
-				return warnings, errs, itemExists
-
-			case volume.CSISnapshot:
-				restoreLogger.Infof("Dynamically re-provisioning persistent volume because it has a CSI VolumeSnapshot or a related snapshot DataUpload.")
-				ctx.pvsToProvision.Insert(backupResourceName)
-
-				// Return early because we don't want to restore the PV itself, we
-				// want to dynamically re-provision it.
-				return warnings, errs, itemExists
-
-			// When the PV data is skipped from backup, it's BackupVolumeInfo BackupMethod
-			// is not set, and it will fall into the default case.
-			default:
-				if hasDeleteReclaimPolicy(obj.Object) {
-					restoreLogger.Infof("Dynamically re-provisioning persistent volume because it doesn't have a snapshot and its reclaim policy is Delete.")
-					ctx.pvsToProvision.Insert(backupResourceName)
-
-					// Return early because we don't want to restore the PV itself, we
-					// want to dynamically re-provision it.
-					return warnings, errs, itemExists
-				} else {
-					obj, err = ctx.handleSkippedPVHasRetainPolicy(obj, restoreLogger)
-					if err != nil {
-						errs.Add(namespace, err)
-						return warnings, errs, itemExists
-					}
-				}
-			}
 		} else {
-			// TODO: BackupVolumeInfo is adopted and old logic is deprecated in v1.13.
-			// Remove the old logic in v1.15.
 			restoreLogger.Infof("Cannot find BackupVolumeInfo for PV %s.", obj.GetName())
+		}
 
-			switch {
-			case hasSnapshot(backupResourceName, ctx.volumeSnapshots):
-				obj, err = ctx.handlePVHasNativeSnapshot(obj, resourceClient)
-				if err != nil {
-					errs.Add(namespace, err)
-					return warnings, errs, itemExists
-				}
-
-			case hasPodVolumeBackup(obj, ctx):
-				restoreLogger.Infof("Dynamically re-provisioning persistent volume because it has a pod volume backup to be restored.")
-				ctx.pvsToProvision.Insert(backupResourceName)
-
-				// Return early because we don't want to restore the PV itself, we
-				// want to dynamically re-provision it.
+		switch volumeInfo.BackupMethod {
+		case volume.NativeSnapshot:
+			obj, err = ctx.handlePVHasNativeSnapshot(obj, resourceClient)
+			if err != nil {
+				errs.Add(namespace, err)
 				return warnings, errs, itemExists
+			}
 
-			case hasCSIVolumeSnapshot(ctx, obj):
-				fallthrough
-			case hasSnapshotDataUpload(ctx, obj):
-				restoreLogger.Infof("Dynamically re-provisioning persistent volume because it has a CSI VolumeSnapshot or a related snapshot DataUpload.")
-				ctx.pvsToProvision.Insert(backupResourceName)
+		case volume.PodVolumeBackup:
+			restoreLogger.Infof("Dynamically re-provisioning persistent volume because it has a pod volume backup to be restored.")
+			ctx.pvsToProvision.Insert(backupResourceName)
 
-				// Return early because we don't want to restore the PV itself, we
-				// want to dynamically re-provision it.
-				return warnings, errs, itemExists
+			// Return early because we don't want to restore the PV itself, we
+			// want to dynamically re-provision it.
+			return warnings, errs, itemExists
 
-			case hasDeleteReclaimPolicy(obj.Object):
+		case volume.CSISnapshot:
+			restoreLogger.Infof("Dynamically re-provisioning persistent volume because it has a CSI VolumeSnapshot or a related snapshot DataUpload.")
+			ctx.pvsToProvision.Insert(backupResourceName)
+
+			// Return early because we don't want to restore the PV itself, we
+			// want to dynamically re-provision it.
+			return warnings, errs, itemExists
+
+		// When the PV data is skipped from backup, it's BackupVolumeInfo BackupMethod
+		// is not set, and it will fall into the default case.
+		default:
+			if hasDeleteReclaimPolicy(obj.Object) {
 				restoreLogger.Infof("Dynamically re-provisioning persistent volume because it doesn't have a snapshot and its reclaim policy is Delete.")
 				ctx.pvsToProvision.Insert(backupResourceName)
 
 				// Return early because we don't want to restore the PV itself, we
 				// want to dynamically re-provision it.
 				return warnings, errs, itemExists
-
-			default:
+			} else {
 				obj, err = ctx.handleSkippedPVHasRetainPolicy(obj, restoreLogger)
 				if err != nil {
 					errs.Add(namespace, err)
@@ -2310,102 +2267,6 @@ func (hwe *hooksWaitExecutor) exec(execHooksByContainer map[string][]hook.PodExe
 	}()
 }
 
-func hasSnapshot(pvName string, snapshots []*volume.Snapshot) bool {
-	for _, snapshot := range snapshots {
-		if snapshot.Spec.PersistentVolumeName == pvName {
-			return true
-		}
-	}
-
-	return false
-}
-
-func hasCSIVolumeSnapshot(ctx *restoreContext, unstructuredPV *unstructured.Unstructured) bool {
-	pv := new(corev1api.PersistentVolume)
-	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredPV.Object, pv); err != nil {
-		ctx.log.WithError(err).Warnf("Unable to convert PV from unstructured to structured")
-		return false
-	}
-	// ignoring static PV cases where there is no claimRef
-	if pv.Spec.ClaimRef == nil {
-		return false
-	}
-
-	for _, vs := range ctx.csiVolumeSnapshots {
-		// In some error cases, the VSs' source PVC could be nil. Skip them.
-		if vs.Spec.Source.PersistentVolumeClaimName == nil {
-			continue
-		}
-
-		if pv.Spec.ClaimRef.Name == *vs.Spec.Source.PersistentVolumeClaimName &&
-			pv.Spec.ClaimRef.Namespace == vs.Namespace {
-			return true
-		}
-	}
-	return false
-}
-
-func hasSnapshotDataUpload(ctx *restoreContext, unstructuredPV *unstructured.Unstructured) bool {
-	pv := new(corev1api.PersistentVolume)
-	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredPV.Object, pv); err != nil {
-		ctx.log.WithError(err).Warnf("Unable to convert PV from unstructured to structured")
-		return false
-	}
-
-	if pv.Spec.ClaimRef == nil {
-		return false
-	}
-
-	dataUploadResultList := new(corev1api.ConfigMapList)
-	err := ctx.kbClient.List(go_context.TODO(), dataUploadResultList, &crclient.ListOptions{
-		LabelSelector: labels.SelectorFromSet(map[string]string{
-			velerov1api.RestoreUIDLabel:       label.GetValidName(string(ctx.restore.GetUID())),
-			velerov1api.PVCNamespaceNameLabel: label.GetValidName(pv.Spec.ClaimRef.Namespace + "." + pv.Spec.ClaimRef.Name),
-			velerov1api.ResourceUsageLabel:    label.GetValidName(string(velerov1api.VeleroResourceUsageDataUploadResult)),
-		}),
-	})
-	if err != nil {
-		ctx.log.WithError(err).Warnf("Fail to list DataUpload result CM.")
-		return false
-	}
-
-	if len(dataUploadResultList.Items) != 1 {
-		ctx.log.WithError(fmt.Errorf("dataupload result number is not expected")).
-			Warnf("Got %d DataUpload result. Expect one.", len(dataUploadResultList.Items))
-		return false
-	}
-
-	return true
-}
-
-func hasPodVolumeBackup(unstructuredPV *unstructured.Unstructured, ctx *restoreContext) bool {
-	if len(ctx.podVolumeBackups) == 0 {
-		return false
-	}
-
-	pv := new(corev1api.PersistentVolume)
-	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstructuredPV.Object, pv); err != nil {
-		ctx.log.WithError(err).Warnf("Unable to convert PV from unstructured to structured")
-		return false
-	}
-
-	if pv.Spec.ClaimRef == nil {
-		return false
-	}
-
-	var found bool
-	for _, pvb := range ctx.podVolumeBackups {
-		if pvb.Status.Phase != velerov1api.PodVolumeBackupPhaseCompleted || pvb.Status.SnapshotID == "" {
-			continue
-		}
-		if pvb.Spec.Pod.Namespace == pv.Spec.ClaimRef.Namespace && pvb.GetAnnotations()[configs.PVCNameAnnotation] == pv.Spec.ClaimRef.Name {
-			found = true
-			break
-		}
-	}
-
-	return found
-}
 
 func hasDeleteReclaimPolicy(obj map[string]any) bool {
 	policy, _, _ := unstructured.NestedString(obj, "spec", "persistentVolumeReclaimPolicy")
