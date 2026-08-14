@@ -3825,6 +3825,13 @@ func TestRestorePersistentVolumes(t *testing.T) {
 				}
 			}
 
+			backupVolumeInfoMap := make(map[string]volume.BackupVolumeInfo)
+			for _, vs := range tc.volumeSnapshots {
+				backupVolumeInfoMap[vs.Spec.PersistentVolumeName] = volume.BackupVolumeInfo{
+					BackupMethod: volume.NativeSnapshot,
+				}
+			}
+
 			data := &Request{
 				Log:                      h.log,
 				Restore:                  tc.restore,
@@ -3832,6 +3839,7 @@ func TestRestorePersistentVolumes(t *testing.T) {
 				VolumeSnapshots:          tc.volumeSnapshots,
 				BackupReader:             tc.tarball,
 				CSIVolumeSnapshots:       tc.csiVolumeSnapshots,
+				BackupVolumeInfoMap:      backupVolumeInfoMap,
 				RestoreVolumeInfoTracker: volume.NewRestoreVolInfoTracker(tc.restore, h.log, test.NewFakeControllerRuntimeClient(t)),
 			}
 			warnings, errs := h.restorer.Restore(
