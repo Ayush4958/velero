@@ -123,6 +123,9 @@ func EnsureNamespaceExistsAndIsReady(ctx context.Context, namespace *corev1api.N
 
 	// err will be set if we timed out or encountered issues retrieving the namespace,
 	if err != nil {
+		if ctx.Err() != nil {
+			return false, nsCreated, ctx.Err()
+		}
 		if terminatingNamespace {
 			// If the namespace is marked for deletion, and we timed out, adding it in tracker
 			resourceDeletionStatusTracker.Add(namespace.Kind, namespace.Name, namespace.Name)
