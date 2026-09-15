@@ -188,6 +188,38 @@ func TestEnsureNamespaceExistsAndIsReadyTerminatingTrackerKindMismatch(t *testin
 	assert.NotContains(t, err.Error(), "timed out waiting for terminating namespace")
 }
 
+func TestEnsureNamespaceExistsAndIsReadyCancellation(t *testing.T) {
+	namespace := &corev1api.Namespace{
+		TypeMeta: metav1.TypeMeta{Kind: "Namespace"},
+		ObjectMeta: metav1.ObjectMeta{Name: "test"},
+	}
+
+	clusterNS := &corev1api.Namespace{
+		TypeMeta: metav1.TypeMeta{Kind: "Namespace"},
+		ObjectMeta: metav1.ObjectMeta{Name: "test"},
+		Status:     corev1api.NamespaceStatus{Phase: corev1api.NamespaceTerminating},
+	}
+
+	nsClient := &velerotest.FakeNamespaceClient{}
+	defer nsClient.AssertExpectations(t)
+	// Return the terminating namespace so that the polling condition triggers.
+	nsClient.On("Get", "test", metav1.GetOptions{}).Return(clusterNS, nil)
+
+	tracker := NewResourceDeletionStatusTracker()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel the context immediately
+
+	result, nsCreated, err := EnsureNamespaceExistsAndIsReady(ctx, namespace, nsClient, time.Millisecond*100, tracker)
+
+	assert.False(t, result)
+	assert.False(t, nsCreated)
+	require.ErrorIs(t, err, context.Canceled)
+
+	// Verify the tracker is NOT modified
+	assert.False(t, tracker.Contains(namespace.Kind, namespace.Name, namespace.Name))
+}
+
 // TestGetVolumeDirectorySuccess tests that the GetVolumeDirectory function
 // returns a volume's name or a volume's name plus '/mount' when a PVC is present.
 func TestGetVolumeDirectorySuccess(t *testing.T) {
