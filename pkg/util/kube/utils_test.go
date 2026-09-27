@@ -190,12 +190,12 @@ func TestEnsureNamespaceExistsAndIsReadyTerminatingTrackerKindMismatch(t *testin
 
 func TestEnsureNamespaceExistsAndIsReadyCancellation(t *testing.T) {
 	namespace := &corev1api.Namespace{
-		TypeMeta: metav1.TypeMeta{Kind: "Namespace"},
+		TypeMeta:   metav1.TypeMeta{Kind: "Namespace"},
 		ObjectMeta: metav1.ObjectMeta{Name: "test"},
 	}
 
 	clusterNS := &corev1api.Namespace{
-		TypeMeta: metav1.TypeMeta{Kind: "Namespace"},
+		TypeMeta:   metav1.TypeMeta{Kind: "Namespace"},
 		ObjectMeta: metav1.ObjectMeta{Name: "test"},
 		Status:     corev1api.NamespaceStatus{Phase: corev1api.NamespaceTerminating},
 	}
