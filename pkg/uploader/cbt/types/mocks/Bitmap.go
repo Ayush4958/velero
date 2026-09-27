@@ -292,7 +292,6 @@ func (_c *Bitmap_VolumeID_Call) RunAndReturn(run func() string) *Bitmap_VolumeID
 	_c.Call.Return(run)
 	return _c
 }
-
 // SetChangeID provides a mock function for the type Bitmap
 func (_mock *Bitmap) SetChangeID(id string) {
 	_mock.Called(id)
